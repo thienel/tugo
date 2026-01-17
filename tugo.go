@@ -9,7 +9,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
+	"github.com/pquerna/otp"
 	"github.com/thienel/tlog"
+	"github.com/thienel/tugo/pkg/auth"
 	"github.com/thienel/tugo/pkg/collection"
 	"github.com/thienel/tugo/pkg/schema"
 	"go.uber.org/zap"
@@ -25,6 +27,14 @@ type Engine struct {
 	schemaManager *schema.Manager
 	collService   *collection.Service
 	collHandler   *collection.Handler
+
+	// Auth components
+	authProvider   auth.Provider
+	userStore      auth.UserStore
+	sessionStore   auth.SessionStore
+	totpManager    *auth.TOTPManager
+	authHandler    *auth.Handler
+	authMiddleware gin.HandlerFunc
 }
 
 // New creates a new TuGo engine with the given configuration.
@@ -109,7 +119,100 @@ func New(config Config) (*Engine, error) {
 		collHandler:   collHandler,
 	}
 
+	// Initialize authentication if configured
+	if len(config.Auth.Methods) > 0 {
+		if err := engine.initAuth(); err != nil {
+			return nil, fmt.Errorf("failed to initialize auth: %w", err)
+		}
+	}
+
 	return engine, nil
+}
+
+// initAuth initializes authentication components.
+func (e *Engine) initAuth() error {
+	// Create user store
+	e.userStore = auth.NewDBUserStore(e.db, "tugo_users")
+
+	// Create session store (for session-based auth)
+	e.sessionStore = auth.NewDBSessionStore(e.db, "tugo_sessions")
+
+	// Determine primary auth method
+	primaryMethod := "jwt"
+	if len(e.config.Auth.Methods) > 0 {
+		primaryMethod = e.config.Auth.Methods[0]
+	}
+
+	// Create auth provider based on configuration
+	switch primaryMethod {
+	case "jwt":
+		jwtConfig := auth.JWTConfig{
+			Secret:        e.config.Auth.JWT.Secret,
+			Expiry:        e.config.Auth.JWT.Expiry,
+			RefreshExpiry: e.config.Auth.JWT.RefreshExp,
+			Issuer:        e.config.Auth.JWT.Issuer,
+		}
+		e.authProvider = auth.NewJWTProvider(jwtConfig, e.userStore)
+
+	case "cookie", "session":
+		sessionConfig := auth.SessionConfig{
+			CookieName: e.config.Auth.Cookie.Name,
+			MaxAge:     e.config.Auth.Cookie.MaxAge,
+			Secure:     e.config.Auth.Cookie.Secure,
+			HttpOnly:   e.config.Auth.Cookie.HttpOnly,
+			SameSite:   e.config.Auth.Cookie.SameSite,
+		}
+		e.authProvider = auth.NewSessionProvider(sessionConfig, e.userStore, e.sessionStore)
+
+	default:
+		// Default to JWT
+		e.authProvider = auth.NewJWTProvider(auth.DefaultJWTConfig(), e.userStore)
+	}
+
+	// Create TOTP manager if enabled
+	for _, method := range e.config.Auth.Methods {
+		if method == "totp" {
+			totpConfig := auth.TOTPConfig{
+				Issuer: e.config.Auth.TOTP.Issuer,
+				Period: uint(e.config.Auth.TOTP.Period),
+				Digits: otp.Digits(e.config.Auth.TOTP.Digits),
+			}
+			e.totpManager = auth.NewTOTPManager(totpConfig, e.userStore)
+			break
+		}
+	}
+
+	// Create session config for auth handler (if using cookies)
+	var sessionConfigPtr *auth.SessionConfig
+	for _, method := range e.config.Auth.Methods {
+		if method == "cookie" || method == "session" {
+			sessionConfig := auth.SessionConfig{
+				CookieName: e.config.Auth.Cookie.Name,
+				MaxAge:     e.config.Auth.Cookie.MaxAge,
+				Secure:     e.config.Auth.Cookie.Secure,
+				HttpOnly:   e.config.Auth.Cookie.HttpOnly,
+				SameSite:   e.config.Auth.Cookie.SameSite,
+			}
+			sessionConfigPtr = &sessionConfig
+			break
+		}
+	}
+
+	// Create auth handler
+	e.authHandler = auth.NewHandler(auth.HandlerConfig{
+		Provider:      e.authProvider,
+		UserStore:     e.userStore,
+		TOTPManager:   e.totpManager,
+		SessionConfig: sessionConfigPtr,
+		Logger:        e.logger,
+	})
+
+	// Create auth middleware
+	e.authMiddleware = auth.RequireAuth(e.authProvider, e.userStore)
+
+	e.logger.Infow("Authentication initialized", "methods", e.config.Auth.Methods)
+
+	return nil
 }
 
 // Init initializes the engine by discovering the schema.
@@ -134,10 +237,36 @@ func (e *Engine) Init(ctx context.Context) error {
 // Mount mounts the TuGo API routes to a Gin router group.
 // This is the primary use case for middleware integration.
 func (e *Engine) Mount(rg *gin.RouterGroup) {
+	// Mount auth routes if enabled
+	if e.authHandler != nil {
+		authGroup := rg.Group("/auth")
+		e.authHandler.RegisterRoutes(authGroup, e.authMiddleware)
+		e.logger.Infow("Auth routes mounted", "path", authGroup.BasePath())
+	}
+
 	// Mount collection routes
 	e.collHandler.RegisterRoutes(rg)
 
 	e.logger.Infow("TuGo routes mounted", "path", rg.BasePath())
+}
+
+// MountWithAuth mounts routes with authentication middleware.
+func (e *Engine) MountWithAuth(rg *gin.RouterGroup) {
+	// Mount auth routes if enabled
+	if e.authHandler != nil {
+		authGroup := rg.Group("/auth")
+		e.authHandler.RegisterRoutes(authGroup, e.authMiddleware)
+	}
+
+	// Apply auth middleware to collection routes
+	if e.authMiddleware != nil {
+		rg.Use(e.authMiddleware)
+	}
+
+	// Mount collection routes
+	e.collHandler.RegisterRoutes(rg)
+
+	e.logger.Infow("TuGo routes mounted with auth", "path", rg.BasePath())
 }
 
 // Router returns the internal Gin router for standalone mode.
@@ -198,4 +327,24 @@ func (e *Engine) GetCollections() []*schema.Collection {
 // HasCollection checks if a collection exists.
 func (e *Engine) HasCollection(name string) bool {
 	return e.schemaManager.HasCollection(name)
+}
+
+// AuthProvider returns the auth provider.
+func (e *Engine) AuthProvider() auth.Provider {
+	return e.authProvider
+}
+
+// AuthMiddleware returns the auth middleware.
+func (e *Engine) AuthMiddleware() gin.HandlerFunc {
+	return e.authMiddleware
+}
+
+// UserStore returns the user store.
+func (e *Engine) UserStore() auth.UserStore {
+	return e.userStore
+}
+
+// TOTPManager returns the TOTP manager.
+func (e *Engine) TOTPManager() *auth.TOTPManager {
+	return e.totpManager
 }
