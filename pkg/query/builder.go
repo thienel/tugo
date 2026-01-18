@@ -53,7 +53,7 @@ type Builder struct {
 	filters     []Filter
 	sorts       []Sort
 	pagination  Pagination
-	args        []interface{}
+	args        []any
 	paramOffset int
 }
 
@@ -94,9 +94,9 @@ func (b *Builder) Paginate(p Pagination) *Builder {
 }
 
 // BuildSelect builds a SELECT query.
-func (b *Builder) BuildSelect() (string, []interface{}) {
+func (b *Builder) BuildSelect() (string, []any) {
 	var sb strings.Builder
-	args := make([]interface{}, 0)
+	args := make([]any, 0)
 
 	// SELECT clause
 	sb.WriteString("SELECT ")
@@ -133,9 +133,9 @@ func (b *Builder) BuildSelect() (string, []interface{}) {
 }
 
 // BuildCount builds a COUNT query.
-func (b *Builder) BuildCount() (string, []interface{}) {
+func (b *Builder) BuildCount() (string, []any) {
 	var sb strings.Builder
-	args := make([]interface{}, 0)
+	args := make([]any, 0)
 
 	sb.WriteString("SELECT COUNT(*) FROM ")
 	sb.WriteString(b.tableName)
@@ -153,7 +153,7 @@ func (b *Builder) BuildCount() (string, []interface{}) {
 }
 
 // BuildSelectByID builds a SELECT query for a single row by ID.
-func (b *Builder) BuildSelectByID(idColumn string) (string, []interface{}) {
+func (b *Builder) BuildSelectByID(idColumn string) (string, []any) {
 	var sb strings.Builder
 
 	sb.WriteString("SELECT ")
@@ -168,10 +168,10 @@ func (b *Builder) BuildSelectByID(idColumn string) (string, []interface{}) {
 }
 
 // BuildInsert builds an INSERT query.
-func BuildInsert(tableName string, data map[string]interface{}) (string, []interface{}) {
+func BuildInsert(tableName string, data map[string]any) (string, []any) {
 	columns := make([]string, 0, len(data))
 	placeholders := make([]string, 0, len(data))
-	args := make([]interface{}, 0, len(data))
+	args := make([]any, 0, len(data))
 	i := 1
 
 	for col, val := range data {
@@ -195,9 +195,9 @@ func BuildInsert(tableName string, data map[string]interface{}) (string, []inter
 }
 
 // BuildUpdate builds an UPDATE query.
-func BuildUpdate(tableName string, idColumn string, id interface{}, data map[string]interface{}) (string, []interface{}) {
+func BuildUpdate(tableName string, idColumn string, id any, data map[string]any) (string, []any) {
 	setClauses := make([]string, 0, len(data))
-	args := make([]interface{}, 0, len(data)+1)
+	args := make([]any, 0, len(data)+1)
 	i := 1
 
 	for col, val := range data {

@@ -76,7 +76,7 @@ func (h *Handler) Get(c *gin.Context) {
 func (h *Handler) Create(c *gin.Context) {
 	collectionName := c.Param("collection")
 
-	var data map[string]interface{}
+	var data map[string]any
 	if err := c.ShouldBindJSON(&data); err != nil {
 		c.JSON(http.StatusBadRequest, response.FromAppError(
 			apperror.ErrBadRequest.WithMessage("Invalid JSON body"),
@@ -98,7 +98,7 @@ func (h *Handler) Update(c *gin.Context) {
 	collectionName := c.Param("collection")
 	id := c.Param("id")
 
-	var data map[string]interface{}
+	var data map[string]any
 	if err := c.ShouldBindJSON(&data); err != nil {
 		c.JSON(http.StatusBadRequest, response.FromAppError(
 			apperror.ErrBadRequest.WithMessage("Invalid JSON body"),

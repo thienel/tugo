@@ -42,7 +42,7 @@ var operatorSQL = map[FilterOperator]string{
 type Filter struct {
 	Field    string
 	Operator FilterOperator
-	Value    interface{}
+	Value    any
 }
 
 // FilterParser parses filter query parameters.
@@ -99,13 +99,13 @@ func (p *FilterParser) Parse(params map[string][]string) ([]Filter, error) {
 }
 
 // ToSQL converts filters to SQL WHERE conditions.
-func FiltersToSQL(filters []Filter, startParam int) (string, []interface{}) {
+func FiltersToSQL(filters []Filter, startParam int) (string, []any) {
 	if len(filters) == 0 {
 		return "", nil
 	}
 
 	conditions := make([]string, 0, len(filters))
-	args := make([]interface{}, 0, len(filters))
+	args := make([]any, 0, len(filters))
 	paramNum := startParam
 
 	for _, f := range filters {
@@ -119,7 +119,7 @@ func FiltersToSQL(filters []Filter, startParam int) (string, []interface{}) {
 }
 
 // filterToSQL converts a single filter to SQL.
-func filterToSQL(f Filter, paramNum int) (string, []interface{}) {
+func filterToSQL(f Filter, paramNum int) (string, []any) {
 	field := sanitizeIdentifier(f.Field)
 
 	switch f.Operator {
@@ -130,12 +130,12 @@ func filterToSQL(f Filter, paramNum int) (string, []interface{}) {
 		return fmt.Sprintf("%s IS NOT NULL", field), nil
 
 	case OpLike:
-		return fmt.Sprintf("%s ILIKE $%d", field, paramNum), []interface{}{"%" + f.Value.(string) + "%"}
+		return fmt.Sprintf("%s ILIKE $%d", field, paramNum), []any{"%" + f.Value.(string) + "%"}
 
 	case OpIn:
 		values := strings.Split(f.Value.(string), ",")
 		placeholders := make([]string, len(values))
-		args := make([]interface{}, len(values))
+		args := make([]any, len(values))
 		for i, v := range values {
 			placeholders[i] = fmt.Sprintf("$%d", paramNum+i)
 			args[i] = strings.TrimSpace(v)
@@ -144,7 +144,7 @@ func filterToSQL(f Filter, paramNum int) (string, []interface{}) {
 
 	default:
 		sqlOp := operatorSQL[f.Operator]
-		return fmt.Sprintf("%s %s $%d", field, sqlOp, paramNum), []interface{}{f.Value}
+		return fmt.Sprintf("%s %s $%d", field, sqlOp, paramNum), []any{f.Value}
 	}
 }
 

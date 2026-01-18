@@ -7,16 +7,16 @@ import (
 
 // User represents an authenticated user.
 type User struct {
-	ID           string                 `json:"id"`
-	Username     string                 `json:"username"`
-	Email        string                 `json:"email,omitempty"`
-	Role         string                 `json:"role"`
-	RoleID       string                 `json:"role_id,omitempty"`
-	Status       string                 `json:"status,omitempty"`
-	TOTPEnabled  bool                   `json:"totp_enabled,omitempty"`
-	Metadata     map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt    time.Time              `json:"created_at,omitempty"`
-	UpdatedAt    time.Time              `json:"updated_at,omitempty"`
+	ID          string         `json:"id"`
+	Username    string         `json:"username"`
+	Email       string         `json:"email,omitempty"`
+	Role        string         `json:"role"`
+	RoleID      string         `json:"role_id,omitempty"`
+	Status      string         `json:"status,omitempty"`
+	TOTPEnabled bool           `json:"totp_enabled,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+	CreatedAt   time.Time      `json:"created_at,omitempty"`
+	UpdatedAt   time.Time      `json:"updated_at,omitempty"`
 }
 
 // Credentials represents login credentials.

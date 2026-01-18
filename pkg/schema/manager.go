@@ -154,6 +154,11 @@ func (m *Manager) GetCollections() []*Collection {
 	return result
 }
 
+// ListCollections returns all collections (alias for GetCollections).
+func (m *Manager) ListCollections() []*Collection {
+	return m.GetCollections()
+}
+
 // GetRelationships returns relationships for a collection.
 func (m *Manager) GetRelationships(collectionName string) []Relationship {
 	m.mu.RLock()

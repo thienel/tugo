@@ -11,9 +11,12 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/pquerna/otp"
 	"github.com/thienel/tlog"
+	"github.com/thienel/tugo/pkg/admin"
 	"github.com/thienel/tugo/pkg/auth"
 	"github.com/thienel/tugo/pkg/collection"
 	"github.com/thienel/tugo/pkg/schema"
+	"github.com/thienel/tugo/pkg/storage"
+	"github.com/thienel/tugo/pkg/validation"
 	"go.uber.org/zap"
 )
 
@@ -35,6 +38,16 @@ type Engine struct {
 	totpManager    *auth.TOTPManager
 	authHandler    *auth.Handler
 	authMiddleware gin.HandlerFunc
+
+	// Storage components
+	storageManager *storage.Manager
+	storageHandler *storage.Handler
+
+	// Validation
+	validatorRegistry *validation.ValidatorRegistry
+
+	// Admin
+	adminHandler *admin.Handler
 }
 
 // New creates a new TuGo engine with the given configuration.
@@ -108,15 +121,22 @@ func New(config Config) (*Engine, error) {
 	router := gin.New()
 	router.Use(gin.Recovery())
 
+	// Create validation registry
+	validatorRegistry := validation.NewValidatorRegistry(db)
+
+	// Set validator on collection service
+	collService.SetValidator(validatorRegistry)
+
 	engine := &Engine{
-		config:        config,
-		db:            db,
-		ownsDB:        ownsDB,
-		logger:        logger,
-		router:        router,
-		schemaManager: schemaManager,
-		collService:   collService,
-		collHandler:   collHandler,
+		config:            config,
+		db:                db,
+		ownsDB:            ownsDB,
+		logger:            logger,
+		router:            router,
+		schemaManager:     schemaManager,
+		collService:       collService,
+		collHandler:       collHandler,
+		validatorRegistry: validatorRegistry,
 	}
 
 	// Initialize authentication if configured
@@ -125,6 +145,16 @@ func New(config Config) (*Engine, error) {
 			return nil, fmt.Errorf("failed to initialize auth: %w", err)
 		}
 	}
+
+	// Initialize storage if configured
+	if config.Storage.Default != "" || len(config.Storage.Providers) > 0 {
+		if err := engine.initStorage(); err != nil {
+			return nil, fmt.Errorf("failed to initialize storage: %w", err)
+		}
+	}
+
+	// Initialize admin handler
+	engine.initAdmin()
 
 	return engine, nil
 }
@@ -215,17 +245,66 @@ func (e *Engine) initAuth() error {
 	return nil
 }
 
+// initStorage initializes storage components.
+func (e *Engine) initStorage() error {
+	// Create storage manager
+	e.storageManager = storage.NewManager(e.config.Storage.Default, e.db)
+
+	// Note: In a real implementation, you would initialize providers from config
+	// For now, we create a local storage provider if no providers are configured
+	if len(e.config.Storage.Providers) == 0 {
+		local, err := storage.NewLocal("./uploads", "/api/v1/files")
+		if err != nil {
+			return fmt.Errorf("failed to create local storage: %w", err)
+		}
+		e.storageManager.RegisterProvider("local", local)
+		if e.config.Storage.Default == "" {
+			e.config.Storage.Default = "local"
+		}
+	}
+
+	// Create storage handler
+	e.storageHandler = storage.NewHandler(e.storageManager, e.logger, storage.DefaultHandlerConfig())
+
+	e.logger.Infow("Storage initialized", "default", e.config.Storage.Default)
+
+	return nil
+}
+
+// initAdmin initializes admin components.
+func (e *Engine) initAdmin() {
+	// Create schema executor
+	executor := admin.NewSchemaExecutor(e.db)
+
+	// Create admin handler
+	e.adminHandler = admin.NewHandler(e.schemaManager, executor, e.logger, admin.DefaultHandlerConfig())
+
+	e.logger.Info("Admin handler initialized")
+}
+
 // Init initializes the engine by discovering the schema.
 func (e *Engine) Init(ctx context.Context) error {
 	e.logger.Info("Initializing TuGo engine...")
+
+	// Ensure storage table exists
+	if e.storageManager != nil {
+		if err := e.storageManager.EnsureTable(ctx); err != nil {
+			e.logger.Warnw("Failed to create storage table", "error", err)
+		}
+	}
 
 	// Discover schema
 	if err := e.schemaManager.Refresh(ctx); err != nil {
 		return fmt.Errorf("failed to refresh schema: %w", err)
 	}
 
-	// Log discovered collections
+	// Build validators for discovered collections
 	collections := e.schemaManager.GetCollections()
+	for _, col := range collections {
+		e.validatorRegistry.BuildFromCollection(col)
+	}
+
+	// Log discovered collections
 	e.logger.Infow("Discovered collections", "count", len(collections))
 	for _, c := range collections {
 		e.logger.Debugw("Collection", "name", c.Name, "table", c.TableName, "fields", len(c.Fields))
@@ -244,27 +323,49 @@ func (e *Engine) Mount(rg *gin.RouterGroup) {
 		e.logger.Infow("Auth routes mounted", "path", authGroup.BasePath())
 	}
 
+	// Mount file storage routes if enabled
+	if e.storageHandler != nil {
+		filesGroup := rg.Group("/files")
+		e.storageHandler.RegisterRoutes(filesGroup)
+		e.logger.Infow("File routes mounted", "path", filesGroup.BasePath())
+	}
+
 	// Mount collection routes
 	e.collHandler.RegisterRoutes(rg)
 
 	e.logger.Infow("TuGo routes mounted", "path", rg.BasePath())
 }
 
+// MountAdmin mounts admin API routes (should be protected).
+func (e *Engine) MountAdmin(rg *gin.RouterGroup) {
+	if e.adminHandler != nil {
+		e.adminHandler.RegisterRoutes(rg)
+		e.logger.Infow("Admin routes mounted", "path", rg.BasePath())
+	}
+}
+
 // MountWithAuth mounts routes with authentication middleware.
 func (e *Engine) MountWithAuth(rg *gin.RouterGroup) {
-	// Mount auth routes if enabled
+	// Mount auth routes if enabled (without auth middleware)
 	if e.authHandler != nil {
 		authGroup := rg.Group("/auth")
 		e.authHandler.RegisterRoutes(authGroup, e.authMiddleware)
 	}
 
-	// Apply auth middleware to collection routes
+	// Apply auth middleware to protected routes
+	protected := rg.Group("")
 	if e.authMiddleware != nil {
-		rg.Use(e.authMiddleware)
+		protected.Use(e.authMiddleware)
+	}
+
+	// Mount file storage routes if enabled
+	if e.storageHandler != nil {
+		filesGroup := protected.Group("/files")
+		e.storageHandler.RegisterRoutes(filesGroup)
 	}
 
 	// Mount collection routes
-	e.collHandler.RegisterRoutes(rg)
+	e.collHandler.RegisterRoutes(protected)
 
 	e.logger.Infow("TuGo routes mounted with auth", "path", rg.BasePath())
 }
@@ -283,6 +384,14 @@ func (e *Engine) Run(addr string) error {
 	// Mount routes on /api/v1
 	v1 := e.router.Group("/api/v1")
 	e.Mount(v1)
+
+	// Mount admin routes on /api/admin (protected by auth if available)
+	adminGroup := e.router.Group("/api/admin")
+	if e.authMiddleware != nil {
+		adminGroup.Use(e.authMiddleware)
+		adminGroup.Use(auth.RequireRole("admin"))
+	}
+	e.MountAdmin(adminGroup)
 
 	e.logger.Infow("Starting TuGo server", "address", addr)
 
@@ -347,4 +456,19 @@ func (e *Engine) UserStore() auth.UserStore {
 // TOTPManager returns the TOTP manager.
 func (e *Engine) TOTPManager() *auth.TOTPManager {
 	return e.totpManager
+}
+
+// StorageManager returns the storage manager.
+func (e *Engine) StorageManager() *storage.Manager {
+	return e.storageManager
+}
+
+// ValidatorRegistry returns the validator registry.
+func (e *Engine) ValidatorRegistry() *validation.ValidatorRegistry {
+	return e.validatorRegistry
+}
+
+// AdminHandler returns the admin handler.
+func (e *Engine) AdminHandler() *admin.Handler {
+	return e.adminHandler
 }

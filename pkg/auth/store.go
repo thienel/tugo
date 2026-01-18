@@ -178,12 +178,12 @@ func (s *DBUserStore) Create(ctx context.Context, user *User, passwordHash strin
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 
-	var roleID interface{}
+	var roleID any
 	if user.RoleID != "" {
 		roleID = user.RoleID
 	}
 
-	var email interface{}
+	var email any
 	if user.Email != "" {
 		email = user.Email
 	}
@@ -223,7 +223,7 @@ func (s *DBUserStore) UpdatePassword(ctx context.Context, userID string, passwor
 func (s *DBUserStore) SetTOTPSecret(ctx context.Context, userID string, secret string) error {
 	query := `UPDATE ` + s.tableName + ` SET totp_secret = $1, updated_at = $2 WHERE id = $3`
 
-	var secretValue interface{}
+	var secretValue any
 	if secret != "" {
 		secretValue = secret
 	}

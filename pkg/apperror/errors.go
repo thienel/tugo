@@ -7,10 +7,11 @@ import (
 
 // AppError represents an application error with HTTP status and code.
 type AppError struct {
-	Code       string `json:"code"`
-	Message    string `json:"message"`
-	HTTPStatus int    `json:"-"`
-	Err        error  `json:"-"`
+	Code       string      `json:"code"`
+	Message    string      `json:"message"`
+	Details    interface{} `json:"details,omitempty"`
+	HTTPStatus int         `json:"-"`
+	Err        error       `json:"-"`
 }
 
 // Error implements the error interface.
@@ -31,6 +32,7 @@ func (e *AppError) WithError(err error) *AppError {
 	return &AppError{
 		Code:       e.Code,
 		Message:    e.Message,
+		Details:    e.Details,
 		HTTPStatus: e.HTTPStatus,
 		Err:        err,
 	}
@@ -41,16 +43,29 @@ func (e *AppError) WithMessage(msg string) *AppError {
 	return &AppError{
 		Code:       e.Code,
 		Message:    msg,
+		Details:    e.Details,
 		HTTPStatus: e.HTTPStatus,
 		Err:        e.Err,
 	}
 }
 
 // WithMessagef creates a copy with a formatted message.
-func (e *AppError) WithMessagef(format string, args ...interface{}) *AppError {
+func (e *AppError) WithMessagef(format string, args ...any) *AppError {
 	return &AppError{
 		Code:       e.Code,
 		Message:    fmt.Sprintf(format, args...),
+		Details:    e.Details,
+		HTTPStatus: e.HTTPStatus,
+		Err:        e.Err,
+	}
+}
+
+// WithDetails creates a copy with validation details.
+func (e *AppError) WithDetails(details interface{}) *AppError {
+	return &AppError{
+		Code:       e.Code,
+		Message:    e.Message,
+		Details:    details,
 		HTTPStatus: e.HTTPStatus,
 		Err:        e.Err,
 	}

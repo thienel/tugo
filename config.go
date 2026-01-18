@@ -140,13 +140,13 @@ type StorageConfig struct {
 // StorageProvider is the interface for file storage backends.
 type StorageProvider interface {
 	// Upload stores a file and returns the storage path.
-	Upload(ctx interface{}, file interface{}, filename string, opts *UploadOptions) (string, error)
+	Upload(ctx any, file any, filename string, opts *UploadOptions) (string, error)
 
 	// Download retrieves a file by its storage path.
-	Download(ctx interface{}, path string) (interface{}, error)
+	Download(ctx any, path string) (any, error)
 
 	// Delete removes a file by its storage path.
-	Delete(ctx interface{}, path string) error
+	Delete(ctx any, path string) error
 
 	// GetURL returns a public URL for the file.
 	GetURL(path string) string

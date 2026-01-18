@@ -4,53 +4,53 @@ import "time"
 
 // Collection represents a discovered database table/collection.
 type Collection struct {
-	ID          string    `db:"id" json:"id"`
-	Name        string    `db:"name" json:"name"`                 // API name (e.g., "products")
-	TableName   string    `db:"table_name" json:"table_name"`     // Actual table name (e.g., "api_products")
-	Enabled     bool      `db:"enabled" json:"enabled"`
-	Fields      []Field   `json:"fields,omitempty"`
-	PrimaryKey  string    `json:"primary_key,omitempty"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
+	ID         string    `db:"id" json:"id"`
+	Name       string    `db:"name" json:"name"`             // API name (e.g., "products")
+	TableName  string    `db:"table_name" json:"table_name"` // Actual table name (e.g., "api_products")
+	Enabled    bool      `db:"enabled" json:"enabled"`
+	Fields     []Field   `json:"fields,omitempty"`
+	PrimaryKey string    `json:"primary_key,omitempty"`
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt  time.Time `db:"updated_at" json:"updated_at"`
 }
 
 // Field represents a column in a table.
 type Field struct {
-	ID             string            `db:"id" json:"id"`
-	CollectionID   string            `db:"collection_id" json:"collection_id"`
-	Name           string            `db:"name" json:"name"`
-	DataType       string            `db:"data_type" json:"data_type"`
-	PostgresType   string            `json:"postgres_type,omitempty"`
-	IsNullable     bool              `db:"is_nullable" json:"is_nullable"`
-	IsUnique       bool              `db:"is_unique" json:"is_unique"`
-	IsPrimaryKey   bool              `json:"is_primary_key"`
-	DefaultValue   *string           `db:"default_value" json:"default_value,omitempty"`
-	MaxLength      *int              `db:"max_length" json:"max_length,omitempty"`
-	Precision      *int              `db:"precision" json:"precision,omitempty"`
-	Scale          *int              `db:"scale" json:"scale,omitempty"`
-	ForeignKey     *ForeignKeyInfo   `json:"foreign_key,omitempty"`
-	ValidationRules map[string]interface{} `json:"validation_rules,omitempty"`
-	CreatedAt      time.Time         `db:"created_at" json:"created_at"`
+	ID              string          `db:"id" json:"id"`
+	CollectionID    string          `db:"collection_id" json:"collection_id"`
+	Name            string          `db:"name" json:"name"`
+	DataType        string          `db:"data_type" json:"data_type"`
+	PostgresType    string          `json:"postgres_type,omitempty"`
+	IsNullable      bool            `db:"is_nullable" json:"is_nullable"`
+	IsUnique        bool            `db:"is_unique" json:"is_unique"`
+	IsPrimaryKey    bool            `json:"is_primary_key"`
+	DefaultValue    *string         `db:"default_value" json:"default_value,omitempty"`
+	MaxLength       *int            `db:"max_length" json:"max_length,omitempty"`
+	Precision       *int            `db:"precision" json:"precision,omitempty"`
+	Scale           *int            `db:"scale" json:"scale,omitempty"`
+	ForeignKey      *ForeignKeyInfo `json:"foreign_key,omitempty"`
+	ValidationRules map[string]any  `json:"validation_rules,omitempty"`
+	CreatedAt       time.Time       `db:"created_at" json:"created_at"`
 }
 
 // ForeignKeyInfo holds foreign key relationship information.
 type ForeignKeyInfo struct {
-	Table      string `json:"table"`
-	Column     string `json:"column"`
-	OnDelete   string `json:"on_delete,omitempty"`
-	OnUpdate   string `json:"on_update,omitempty"`
+	Table    string `json:"table"`
+	Column   string `json:"column"`
+	OnDelete string `json:"on_delete,omitempty"`
+	OnUpdate string `json:"on_update,omitempty"`
 }
 
 // Relationship represents a relationship between collections.
 type Relationship struct {
-	ID                   string `db:"id" json:"id"`
-	CollectionID         string `db:"collection_id" json:"collection_id"`
-	FieldName            string `db:"field_name" json:"field_name"`
-	RelatedCollectionID  string `db:"related_collection_id" json:"related_collection_id"`
-	RelatedCollection    string `json:"related_collection,omitempty"` // API name
-	RelationshipType     string `db:"relationship_type" json:"relationship_type"` // many_to_one, one_to_many, many_to_many
-	JunctionTable        string `db:"junction_table" json:"junction_table,omitempty"`
-	JunctionField        string `db:"junction_field" json:"junction_field,omitempty"`
+	ID                  string `db:"id" json:"id"`
+	CollectionID        string `db:"collection_id" json:"collection_id"`
+	FieldName           string `db:"field_name" json:"field_name"`
+	RelatedCollectionID string `db:"related_collection_id" json:"related_collection_id"`
+	RelatedCollection   string `json:"related_collection,omitempty"`             // API name
+	RelationshipType    string `db:"relationship_type" json:"relationship_type"` // many_to_one, one_to_many, many_to_many
+	JunctionTable       string `db:"junction_table" json:"junction_table,omitempty"`
+	JunctionField       string `db:"junction_field" json:"junction_field,omitempty"`
 }
 
 // PostgresColumnInfo represents raw column info from PostgreSQL.

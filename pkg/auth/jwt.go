@@ -27,7 +27,7 @@ type JWTConfig struct {
 // DefaultJWTConfig returns default JWT configuration.
 func DefaultJWTConfig() JWTConfig {
 	return JWTConfig{
-		Expiry:        86400,   // 24 hours
+		Expiry:        86400,  // 24 hours
 		RefreshExpiry: 604800, // 7 days
 		Issuer:        "tugo",
 	}
@@ -161,7 +161,7 @@ func (p *JWTProvider) GenerateTokens(ctx context.Context, user *User) (*TokenPai
 
 // ValidateToken validates an access token and returns claims.
 func (p *JWTProvider) ValidateToken(ctx context.Context, tokenString string) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
 		}
@@ -195,7 +195,7 @@ func (p *JWTProvider) ValidateToken(ctx context.Context, tokenString string) (*C
 
 // RefreshTokens exchanges a refresh token for new tokens.
 func (p *JWTProvider) RefreshTokens(ctx context.Context, refreshTokenString string) (*TokenPair, error) {
-	token, err := jwt.ParseWithClaims(refreshTokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(refreshTokenString, &JWTClaims{}, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
 		}

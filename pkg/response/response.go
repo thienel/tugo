@@ -6,21 +6,21 @@ import (
 
 // Response is the standard API response structure.
 type Response struct {
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   *ErrorBody  `json:"error,omitempty"`
+	Success bool       `json:"success"`
+	Data    any        `json:"data,omitempty"`
+	Error   *ErrorBody `json:"error,omitempty"`
 }
 
 // ErrorBody contains error details.
 type ErrorBody struct {
-	Code    string      `json:"code"`
-	Message string      `json:"message"`
-	Details interface{} `json:"details,omitempty"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Details any    `json:"details,omitempty"`
 }
 
 // ListData wraps list responses with pagination.
 type ListData struct {
-	Items      interface{} `json:"items"`
+	Items      any         `json:"items"`
 	Pagination *Pagination `json:"pagination,omitempty"`
 }
 
@@ -33,7 +33,7 @@ type Pagination struct {
 }
 
 // Success creates a successful response.
-func Success(data interface{}) Response {
+func Success(data any) Response {
 	return Response{
 		Success: true,
 		Data:    data,
@@ -41,7 +41,7 @@ func Success(data interface{}) Response {
 }
 
 // SuccessList creates a successful list response with pagination.
-func SuccessList(items interface{}, pagination *Pagination) Response {
+func SuccessList(items any, pagination *Pagination) Response {
 	return Response{
 		Success: true,
 		Data: ListData{
@@ -63,7 +63,7 @@ func Error(code, message string) Response {
 }
 
 // ErrorWithDetails creates an error response with details.
-func ErrorWithDetails(code, message string, details interface{}) Response {
+func ErrorWithDetails(code, message string, details any) Response {
 	return Response{
 		Success: false,
 		Error: &ErrorBody{
@@ -81,6 +81,7 @@ func FromAppError(err *apperror.AppError) Response {
 		Error: &ErrorBody{
 			Code:    err.Code,
 			Message: err.Message,
+			Details: err.Details,
 		},
 	}
 }

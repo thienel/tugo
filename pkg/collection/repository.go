@@ -23,7 +23,7 @@ func NewRepository(db *sqlx.DB) *Repository {
 
 // ListResult contains the results of a list query.
 type ListResult struct {
-	Items []map[string]interface{}
+	Items []map[string]any
 	Total int
 }
 
@@ -49,9 +49,9 @@ func (r *Repository) List(ctx context.Context, collection *schema.Collection, op
 	}
 	defer rows.Close()
 
-	items := make([]map[string]interface{}, 0)
+	items := make([]map[string]any, 0)
 	for rows.Next() {
-		item := make(map[string]interface{})
+		item := make(map[string]any)
 		if err := rows.MapScan(item); err != nil {
 			return nil, apperror.ErrInternalServer.WithError(err)
 		}
@@ -70,12 +70,12 @@ func (r *Repository) List(ctx context.Context, collection *schema.Collection, op
 }
 
 // GetByID retrieves a single item by ID.
-func (r *Repository) GetByID(ctx context.Context, collection *schema.Collection, id interface{}) (map[string]interface{}, error) {
+func (r *Repository) GetByID(ctx context.Context, collection *schema.Collection, id any) (map[string]any, error) {
 	builder := query.NewBuilder(collection.TableName)
 	querySQL, _ := builder.BuildSelectByID(collection.PrimaryKey)
 
 	row := r.db.QueryRowxContext(ctx, querySQL, id)
-	item := make(map[string]interface{})
+	item := make(map[string]any)
 	if err := row.MapScan(item); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, apperror.ErrNotFound.WithMessagef("Item with ID '%v' not found", id)
@@ -88,11 +88,11 @@ func (r *Repository) GetByID(ctx context.Context, collection *schema.Collection,
 }
 
 // Create inserts a new item.
-func (r *Repository) Create(ctx context.Context, collection *schema.Collection, data map[string]interface{}) (map[string]interface{}, error) {
+func (r *Repository) Create(ctx context.Context, collection *schema.Collection, data map[string]any) (map[string]any, error) {
 	querySQL, args := query.BuildInsert(collection.TableName, data)
 
 	row := r.db.QueryRowxContext(ctx, querySQL, args...)
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 	if err := row.MapScan(result); err != nil {
 		if isDuplicateKeyError(err) {
 			return nil, apperror.ErrConflict.WithMessage("Record already exists")
@@ -105,7 +105,7 @@ func (r *Repository) Create(ctx context.Context, collection *schema.Collection, 
 }
 
 // Update updates an existing item.
-func (r *Repository) Update(ctx context.Context, collection *schema.Collection, id interface{}, data map[string]interface{}) (map[string]interface{}, error) {
+func (r *Repository) Update(ctx context.Context, collection *schema.Collection, id any, data map[string]any) (map[string]any, error) {
 	// Check if item exists
 	_, err := r.GetByID(ctx, collection, id)
 	if err != nil {
@@ -115,7 +115,7 @@ func (r *Repository) Update(ctx context.Context, collection *schema.Collection, 
 	querySQL, args := query.BuildUpdate(collection.TableName, collection.PrimaryKey, id, data)
 
 	row := r.db.QueryRowxContext(ctx, querySQL, args...)
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 	if err := row.MapScan(result); err != nil {
 		if isDuplicateKeyError(err) {
 			return nil, apperror.ErrConflict.WithMessage("Record with this value already exists")
@@ -128,7 +128,7 @@ func (r *Repository) Update(ctx context.Context, collection *schema.Collection, 
 }
 
 // Delete removes an item by ID.
-func (r *Repository) Delete(ctx context.Context, collection *schema.Collection, id interface{}) error {
+func (r *Repository) Delete(ctx context.Context, collection *schema.Collection, id any) error {
 	// Check if item exists
 	_, err := r.GetByID(ctx, collection, id)
 	if err != nil {
@@ -145,9 +145,9 @@ func (r *Repository) Delete(ctx context.Context, collection *schema.Collection, 
 }
 
 // GetRelated retrieves related items for expansion.
-func (r *Repository) GetRelated(ctx context.Context, relatedCollection *schema.Collection, foreignKey string, ids []interface{}) (map[interface{}]map[string]interface{}, error) {
+func (r *Repository) GetRelated(ctx context.Context, relatedCollection *schema.Collection, foreignKey string, ids []any) (map[any]map[string]any, error) {
 	if len(ids) == 0 {
-		return make(map[interface{}]map[string]interface{}), nil
+		return make(map[any]map[string]any), nil
 	}
 
 	// Build IN query for related items
@@ -163,9 +163,9 @@ func (r *Repository) GetRelated(ctx context.Context, relatedCollection *schema.C
 	}
 	defer rows.Close()
 
-	result := make(map[interface{}]map[string]interface{})
+	result := make(map[any]map[string]any)
 	for rows.Next() {
-		item := make(map[string]interface{})
+		item := make(map[string]any)
 		if err := rows.MapScan(item); err != nil {
 			return nil, apperror.ErrInternalServer.WithError(err)
 		}
@@ -186,14 +186,14 @@ type ListOptions struct {
 }
 
 // normalizeMapValues converts []byte to string and handles other type normalizations.
-func normalizeMapValues(m map[string]interface{}) {
+func normalizeMapValues(m map[string]any) {
 	for k, v := range m {
 		m[k] = normalizeValue(v)
 	}
 }
 
 // normalizeValue normalizes a single value.
-func normalizeValue(v interface{}) interface{} {
+func normalizeValue(v any) any {
 	switch val := v.(type) {
 	case []byte:
 		return string(val)
@@ -203,7 +203,7 @@ func normalizeValue(v interface{}) interface{} {
 }
 
 // interfacesToString converts a slice of interfaces to comma-separated string.
-func interfacesToString(ids []interface{}) string {
+func interfacesToString(ids []any) string {
 	strs := make([]string, len(ids))
 	for i, id := range ids {
 		strs[i] = interfaceToString(id)
@@ -212,7 +212,7 @@ func interfacesToString(ids []interface{}) string {
 }
 
 // interfaceToString converts an interface to string.
-func interfaceToString(v interface{}) string {
+func interfaceToString(v any) string {
 	switch val := v.(type) {
 	case string:
 		return val
