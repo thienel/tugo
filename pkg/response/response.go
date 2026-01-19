@@ -1,6 +1,7 @@
 package response
 
 import (
+	"github.com/gin-gonic/gin"
 	"github.com/thienel/tugo/pkg/apperror"
 )
 
@@ -110,4 +111,66 @@ func NewPagination(page, limit, total int) *Pagination {
 		Total:      total,
 		TotalPages: totalPages,
 	}
+}
+
+// Gin helper functions for common HTTP responses
+
+// JSON sends a JSON response with status code.
+func JSON(c *gin.Context, status int, resp Response) {
+	c.JSON(status, resp)
+}
+
+// OK sends a 200 OK response with data.
+func OK(c *gin.Context, data any) {
+	c.JSON(200, Success(data))
+}
+
+// Created sends a 201 Created response with data.
+func Created(c *gin.Context, data any) {
+	c.JSON(201, Success(data))
+}
+
+// NoContent sends a 204 No Content response.
+func NoContent(c *gin.Context) {
+	c.Status(204)
+}
+
+// BadRequest sends a 400 Bad Request response.
+func BadRequest(c *gin.Context, message string) {
+	c.JSON(400, Error(apperror.CodeBadRequest, message))
+}
+
+// Unauthorized sends a 401 Unauthorized response.
+func Unauthorized(c *gin.Context, message string) {
+	c.JSON(401, Error(apperror.CodeUnauthorized, message))
+}
+
+// Forbidden sends a 403 Forbidden response.
+func Forbidden(c *gin.Context, message string) {
+	c.JSON(403, Error(apperror.CodeForbidden, message))
+}
+
+// NotFound sends a 404 Not Found response.
+func NotFound(c *gin.Context, message string) {
+	c.JSON(404, Error(apperror.CodeNotFound, message))
+}
+
+// Conflict sends a 409 Conflict response.
+func Conflict(c *gin.Context, message string) {
+	c.JSON(409, Error(apperror.CodeConflict, message))
+}
+
+// ValidationError sends a 422 Unprocessable Entity response.
+func ValidationError(c *gin.Context, message string, details any) {
+	c.JSON(422, ErrorWithDetails(apperror.CodeValidation, message, details))
+}
+
+// InternalError sends a 500 Internal Server Error response.
+func InternalError(c *gin.Context, message string) {
+	c.JSON(500, Error(apperror.CodeInternalServer, message))
+}
+
+// HandleAppError sends appropriate response based on AppError.
+func HandleAppError(c *gin.Context, err *apperror.AppError) {
+	c.JSON(err.HTTPStatus, FromAppError(err))
 }

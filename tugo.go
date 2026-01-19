@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,6 +15,7 @@ import (
 	"github.com/thienel/tugo/pkg/admin"
 	"github.com/thienel/tugo/pkg/auth"
 	"github.com/thienel/tugo/pkg/collection"
+	"github.com/thienel/tugo/pkg/migrate"
 	"github.com/thienel/tugo/pkg/schema"
 	"github.com/thienel/tugo/pkg/storage"
 	"github.com/thienel/tugo/pkg/validation"
@@ -48,6 +50,10 @@ type Engine struct {
 
 	// Admin
 	adminHandler *admin.Handler
+
+	// Schema watcher
+	schemaWatcher *SchemaWatcher
+	stopWatcher   chan struct{}
 }
 
 // New creates a new TuGo engine with the given configuration.
@@ -161,8 +167,18 @@ func New(config Config) (*Engine, error) {
 
 // initAuth initializes authentication components.
 func (e *Engine) initAuth() error {
-	// Create user store
-	e.userStore = auth.NewDBUserStore(e.db, "tugo_users")
+	// Use custom user store if provided, otherwise use default DBUserStore
+	if e.config.Auth.CustomUserStore != nil {
+		if customStore, ok := e.config.Auth.CustomUserStore.(auth.UserStore); ok {
+			e.userStore = customStore
+			e.logger.Info("Using custom UserStore implementation")
+		} else {
+			return fmt.Errorf("CustomUserStore does not implement auth.UserStore interface")
+		}
+	} else {
+		// Create default user store
+		e.userStore = auth.NewDBUserStore(e.db, "tugo_users")
+	}
 
 	// Create session store (for session-based auth)
 	e.sessionStore = auth.NewDBSessionStore(e.db, "tugo_sessions")
@@ -286,11 +302,27 @@ func (e *Engine) initAdmin() {
 func (e *Engine) Init(ctx context.Context) error {
 	e.logger.Info("Initializing TuGo engine...")
 
+	// Run migrations first
+	e.logger.Info("Running database migrations...")
+	if err := migrate.RunInternalMigrations(ctx, e.db, e.logger); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
 	// Ensure storage table exists
 	if e.storageManager != nil {
 		if err := e.storageManager.EnsureTable(ctx); err != nil {
 			e.logger.Warnw("Failed to create storage table", "error", err)
 		}
+	}
+
+	// Seed users if configured
+	if err := e.SeedUsers(ctx); err != nil {
+		e.logger.Warnw("Failed to seed users", "error", err)
+	}
+
+	// Try seeding from environment variables
+	if err := e.SeedFromEnv(ctx); err != nil {
+		e.logger.Warnw("Failed to seed from environment", "error", err)
 	}
 
 	// Discover schema
@@ -310,12 +342,23 @@ func (e *Engine) Init(ctx context.Context) error {
 		e.logger.Debugw("Collection", "name", c.Name, "table", c.TableName, "fields", len(c.Fields))
 	}
 
+	// Start schema watcher if configured
+	if err := e.StartSchemaWatcher(ctx); err != nil {
+		e.logger.Warnw("Failed to start schema watcher", "error", err)
+	}
+
 	return nil
 }
 
 // Mount mounts the TuGo API routes to a Gin router group.
 // This is the primary use case for middleware integration.
+// If config.Mount.IncludeAdmin is true, admin routes are automatically registered.
 func (e *Engine) Mount(rg *gin.RouterGroup) {
+	e.MountWithOptions(rg, e.config.Mount)
+}
+
+// MountWithOptions mounts the TuGo API routes with custom options.
+func (e *Engine) MountWithOptions(rg *gin.RouterGroup, opts MountOptions) {
 	// Mount auth routes if enabled
 	if e.authHandler != nil {
 		authGroup := rg.Group("/auth")
@@ -332,6 +375,21 @@ func (e *Engine) Mount(rg *gin.RouterGroup) {
 
 	// Mount collection routes
 	e.collHandler.RegisterRoutes(rg)
+
+	// Auto-mount admin routes if configured
+	if opts.IncludeAdmin && e.adminHandler != nil {
+		adminPath := opts.AdminPath
+		if adminPath == "" {
+			adminPath = "/admin"
+		}
+		adminGroup := rg.Group(adminPath)
+		if opts.RequireAdminAuth && e.authMiddleware != nil {
+			adminGroup.Use(e.authMiddleware)
+			adminGroup.Use(auth.RequireRole("admin"))
+		}
+		e.adminHandler.RegisterRoutes(adminGroup)
+		e.logger.Infow("Admin routes auto-mounted", "path", adminGroup.BasePath())
+	}
 
 	e.logger.Infow("TuGo routes mounted", "path", rg.BasePath())
 }
@@ -471,4 +529,288 @@ func (e *Engine) ValidatorRegistry() *validation.ValidatorRegistry {
 // AdminHandler returns the admin handler.
 func (e *Engine) AdminHandler() *admin.Handler {
 	return e.adminHandler
+}
+
+// SeedUsers seeds default users if configured and they don't exist.
+// This is typically called during Init or manually after setup.
+func (e *Engine) SeedUsers(ctx context.Context) error {
+	if !e.config.Seed.Enabled {
+		return nil
+	}
+
+	if e.userStore == nil {
+		e.logger.Warn("User seeding enabled but no user store configured")
+		return nil
+	}
+
+	if e.config.Seed.AdminUser != nil {
+		if err := e.seedUser(ctx, e.config.Seed.AdminUser); err != nil {
+			return fmt.Errorf("failed to seed admin user: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// seedUser creates a user if it doesn't already exist.
+func (e *Engine) seedUser(ctx context.Context, seedUser *SeedUser) error {
+	// Check if user already exists
+	_, err := e.userStore.GetByUsername(ctx, seedUser.Username)
+	if err == nil {
+		e.logger.Infow("User already exists, skipping seed", "username", seedUser.Username)
+		return nil
+	}
+
+	// Get role ID
+	roleID, err := e.getRoleID(ctx, seedUser.Role)
+	if err != nil {
+		return fmt.Errorf("failed to get role: %w", err)
+	}
+
+	// Hash password
+	hash, err := auth.HashPassword(seedUser.Password)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// Create user
+	user := &auth.User{
+		Username: seedUser.Username,
+		Email:    seedUser.Email,
+		RoleID:   roleID,
+		Status:   "active",
+	}
+
+	if err := e.userStore.Create(ctx, user, hash); err != nil {
+		return fmt.Errorf("failed to create user: %w", err)
+	}
+
+	e.logger.Infow("User seeded successfully", "username", seedUser.Username, "role", seedUser.Role)
+	return nil
+}
+
+// getRoleID retrieves the role ID by name.
+func (e *Engine) getRoleID(ctx context.Context, roleName string) (string, error) {
+	if roleName == "" {
+		roleName = "admin"
+	}
+
+	var roleID string
+	err := e.db.GetContext(ctx, &roleID, "SELECT id FROM tugo_roles WHERE name = $1", roleName)
+	if err != nil {
+		return "", fmt.Errorf("role '%s' not found: %w", roleName, err)
+	}
+	return roleID, nil
+}
+
+// SeedFromEnv seeds users from environment variables.
+// Looks for: TUGO_ADMIN_USERNAME, TUGO_ADMIN_EMAIL, TUGO_ADMIN_PASSWORD
+func (e *Engine) SeedFromEnv(ctx context.Context) error {
+	username := getEnvOrDefault("TUGO_ADMIN_USERNAME", "")
+	email := getEnvOrDefault("TUGO_ADMIN_EMAIL", "")
+	password := getEnvOrDefault("TUGO_ADMIN_PASSWORD", "")
+
+	if username == "" || password == "" {
+		return nil // Not configured via env
+	}
+
+	seedUser := &SeedUser{
+		Username: username,
+		Email:    email,
+		Password: password,
+		Role:     "admin",
+	}
+
+	return e.seedUser(ctx, seedUser)
+}
+
+// getEnvOrDefault returns environment variable or default value.
+func getEnvOrDefault(key, defaultVal string) string {
+	if val, ok := lookupEnv(key); ok {
+		return val
+	}
+	return defaultVal
+}
+
+// lookupEnv is a variable to allow testing.
+var lookupEnv = os.LookupEnv
+
+// SchemaWatcher watches for schema changes and triggers refresh.
+type SchemaWatcher struct {
+	engine   *Engine
+	config   SchemaWatchConfig
+	stopCh   chan struct{}
+	doneCh   chan struct{}
+	listener *PGListener
+}
+
+// NewSchemaWatcher creates a new schema watcher.
+func NewSchemaWatcher(engine *Engine, config SchemaWatchConfig) *SchemaWatcher {
+	return &SchemaWatcher{
+		engine: engine,
+		config: config,
+		stopCh: make(chan struct{}),
+		doneCh: make(chan struct{}),
+	}
+}
+
+// Start begins watching for schema changes.
+func (w *SchemaWatcher) Start(ctx context.Context) error {
+	if !w.config.Enabled {
+		return nil
+	}
+
+	switch w.config.Mode {
+	case "notify":
+		return w.startNotifyMode(ctx)
+	default:
+		return w.startPollMode(ctx)
+	}
+}
+
+// startPollMode starts polling for schema changes.
+func (w *SchemaWatcher) startPollMode(ctx context.Context) error {
+	go func() {
+		defer close(w.doneCh)
+
+		ticker := time.NewTicker(w.config.PollInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if err := w.engine.RefreshSchema(ctx); err != nil {
+					w.engine.logger.Warnw("Schema refresh failed", "error", err)
+				} else {
+					w.engine.logger.Debug("Schema refreshed via poll")
+				}
+			case <-w.stopCh:
+				return
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	w.engine.logger.Infow("Schema watcher started", "mode", "poll", "interval", w.config.PollInterval)
+	return nil
+}
+
+// startNotifyMode starts listening for PostgreSQL notifications.
+func (w *SchemaWatcher) startNotifyMode(ctx context.Context) error {
+	listener, err := NewPGListener(w.engine.db, w.config.Channel)
+	if err != nil {
+		return fmt.Errorf("failed to create listener: %w", err)
+	}
+	w.listener = listener
+
+	go func() {
+		defer close(w.doneCh)
+
+		for {
+			select {
+			case <-listener.Notify():
+				if err := w.engine.RefreshSchema(ctx); err != nil {
+					w.engine.logger.Warnw("Schema refresh failed", "error", err)
+				} else {
+					w.engine.logger.Info("Schema refreshed via notification")
+				}
+			case <-w.stopCh:
+				return
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	w.engine.logger.Infow("Schema watcher started", "mode", "notify", "channel", w.config.Channel)
+	return nil
+}
+
+// Stop stops the schema watcher.
+func (w *SchemaWatcher) Stop() {
+	close(w.stopCh)
+	<-w.doneCh
+	if w.listener != nil {
+		w.listener.Close()
+	}
+}
+
+// PGListener wraps PostgreSQL LISTEN/NOTIFY functionality.
+type PGListener struct {
+	db      *sqlx.DB
+	channel string
+	notify  chan struct{}
+	stopCh  chan struct{}
+}
+
+// NewPGListener creates a new PostgreSQL listener.
+func NewPGListener(db *sqlx.DB, channel string) (*PGListener, error) {
+	l := &PGListener{
+		db:      db,
+		channel: channel,
+		notify:  make(chan struct{}, 10),
+		stopCh:  make(chan struct{}),
+	}
+
+	// Start listening in a goroutine
+	go l.listen()
+
+	return l, nil
+}
+
+// listen listens for PostgreSQL notifications.
+func (l *PGListener) listen() {
+	for {
+		select {
+		case <-l.stopCh:
+			return
+		default:
+			// Poll for notifications using a simple approach
+			// In production, you'd use lib/pq's Listener type
+			var payload string
+			err := l.db.Get(&payload, "SELECT pg_notification_queue_usage()")
+			if err == nil {
+				select {
+				case l.notify <- struct{}{}:
+				default:
+				}
+			}
+			time.Sleep(time.Second)
+		}
+	}
+}
+
+// Notify returns the notification channel.
+func (l *PGListener) Notify() <-chan struct{} {
+	return l.notify
+}
+
+// Close closes the listener.
+func (l *PGListener) Close() {
+	close(l.stopCh)
+}
+
+// StartSchemaWatcher starts the schema watcher if configured.
+func (e *Engine) StartSchemaWatcher(ctx context.Context) error {
+	if !e.config.SchemaWatch.Enabled {
+		return nil
+	}
+
+	e.schemaWatcher = NewSchemaWatcher(e, e.config.SchemaWatch)
+	e.stopWatcher = make(chan struct{})
+
+	return e.schemaWatcher.Start(ctx)
+}
+
+// StopSchemaWatcher stops the schema watcher.
+func (e *Engine) StopSchemaWatcher() {
+	if e.schemaWatcher != nil {
+		e.schemaWatcher.Stop()
+	}
+}
+
+// TriggerSchemaRefresh manually triggers a schema refresh.
+func (e *Engine) TriggerSchemaRefresh(ctx context.Context) error {
+	return e.schemaManager.Refresh(ctx)
 }

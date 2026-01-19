@@ -6,17 +6,31 @@ import (
 )
 
 // User represents an authenticated user.
+// This struct can be embedded in custom user types to add additional fields.
+//
+// Example embed pattern:
+//
+//	type Employee struct {
+//	    auth.User                    // Embed the base User
+//	    DepartmentID string          `db:"department_id" json:"department_id"`
+//	    HireDate     time.Time       `db:"hire_date" json:"hire_date"`
+//	    ManagerID    string          `db:"manager_id" json:"manager_id,omitempty"`
+//	}
+//
+//	func (e *Employee) GetUser() *auth.User {
+//	    return &e.User
+//	}
 type User struct {
-	ID          string         `json:"id"`
-	Username    string         `json:"username"`
-	Email       string         `json:"email,omitempty"`
-	Role        string         `json:"role"`
-	RoleID      string         `json:"role_id,omitempty"`
-	Status      string         `json:"status,omitempty"`
-	TOTPEnabled bool           `json:"totp_enabled,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
-	CreatedAt   time.Time      `json:"created_at,omitempty"`
-	UpdatedAt   time.Time      `json:"updated_at,omitempty"`
+	ID          string         `db:"id" json:"id"`
+	Username    string         `db:"username" json:"username"`
+	Email       string         `db:"email" json:"email,omitempty"`
+	Role        string         `db:"-" json:"role"` // Populated from join
+	RoleID      string         `db:"role_id" json:"role_id,omitempty"`
+	Status      string         `db:"status" json:"status,omitempty"`
+	TOTPEnabled bool           `db:"totp_enabled" json:"totp_enabled,omitempty"`
+	Metadata    map[string]any `db:"-" json:"metadata,omitempty"` // Handled separately as JSONB
+	CreatedAt   time.Time      `db:"created_at" json:"created_at,omitempty"`
+	UpdatedAt   time.Time      `db:"updated_at" json:"updated_at,omitempty"`
 }
 
 // Credentials represents login credentials.

@@ -71,6 +71,17 @@ func (e *AppError) WithDetails(details interface{}) *AppError {
 	}
 }
 
+// Error codes as constants for convenience
+const (
+	CodeBadRequest      = "BAD_REQUEST"
+	CodeValidation      = "VALIDATION_ERROR"
+	CodeUnauthorized    = "UNAUTHORIZED"
+	CodeForbidden       = "FORBIDDEN"
+	CodeNotFound        = "NOT_FOUND"
+	CodeConflict        = "CONFLICT"
+	CodeInternalServer  = "INTERNAL_ERROR"
+)
+
 // Standard errors
 var (
 	ErrBadRequest = &AppError{

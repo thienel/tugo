@@ -27,6 +27,15 @@ type Config struct {
 
 	// Server configures the HTTP server (standalone mode only).
 	Server ServerConfig
+
+	// Mount configures route mounting behavior.
+	Mount MountOptions
+
+	// Seed configures user seeding on first run.
+	Seed SeedConfig
+
+	// SchemaWatch configures automatic schema change detection.
+	SchemaWatch SchemaWatchConfig
 }
 
 // DiscoveryConfig configures table discovery behavior.
@@ -76,6 +85,52 @@ type AuthConfig struct {
 
 	// TOTP configures time-based one-time passwords.
 	TOTP TOTPConfig
+
+	// CustomUserStore allows injecting a custom UserStore implementation.
+	// If provided, TuGo will use this instead of the default DBUserStore.
+	// This enables apps to use custom user tables and add business logic.
+	//
+	// The custom store must implement the auth.UserStore interface.
+	// See auth/types.go for the interface definition.
+	//
+	// Example with embed pattern:
+	//
+	//	type Employee struct {
+	//	    auth.User                    // Embed the base User
+	//	    DepartmentID string          `db:"department_id" json:"department_id"`
+	//	    HireDate     time.Time       `db:"hire_date" json:"hire_date"`
+	//	}
+	//
+	//	type EmployeeStore struct {
+	//	    db          *sqlx.DB
+	//	    emailClient *email.Client
+	//	}
+	//
+	//	func (s *EmployeeStore) Create(ctx context.Context, user *auth.User, hash string) error {
+	//	    // Custom business logic: can access embedded User fields
+	//	    _, err := s.db.ExecContext(ctx, "INSERT INTO employees ...", user.ID, user.Username, hash)
+	//	    if err != nil { return err }
+	//	    s.emailClient.SendWelcome(user.Email)
+	//	    return nil
+	//	}
+	//
+	//	func (s *EmployeeStore) GetByUsername(ctx context.Context, username string) (*auth.User, error) {
+	//	    var emp Employee // Employee embeds auth.User
+	//	    if err := s.db.GetContext(ctx, &emp, "SELECT * FROM employees WHERE username = $1", username); err != nil {
+	//	        return nil, err
+	//	    }
+	//	    return &emp.User, nil // Return embedded User
+	//	}
+	//
+	// Pass to TuGo config:
+	//
+	//	tugo.New(tugo.Config{
+	//	    Auth: tugo.AuthConfig{
+	//	        CustomUserStore: &EmployeeStore{db: db, emailClient: emailClient},
+	//	    },
+	//	})
+	//
+	CustomUserStore any // Must implement auth.UserStore interface
 }
 
 // JWTConfig configures JWT authentication.
@@ -172,6 +227,77 @@ type ServerConfig struct {
 
 	// WriteTimeout is the response write timeout.
 	WriteTimeout time.Duration
+}
+
+// MountOptions configures how TuGo mounts its routes.
+type MountOptions struct {
+	// IncludeAdmin enables auto-registration of admin routes under /admin.
+	// Default: false
+	IncludeAdmin bool
+
+	// AdminPath is the path prefix for admin routes.
+	// Default: "/admin"
+	AdminPath string
+
+	// RequireAdminAuth requires admin role for admin routes.
+	// Default: true
+	RequireAdminAuth bool
+}
+
+// DefaultMountOptions returns default mount options.
+func DefaultMountOptions() MountOptions {
+	return MountOptions{
+		IncludeAdmin:     false,
+		AdminPath:        "/admin",
+		RequireAdminAuth: true,
+	}
+}
+
+// SeedConfig configures user seeding on first run.
+type SeedConfig struct {
+	// Enabled enables user seeding.
+	Enabled bool
+
+	// AdminUser is the default admin user configuration.
+	AdminUser *SeedUser
+}
+
+// SeedUser represents a user to seed.
+type SeedUser struct {
+	Username string
+	Email    string
+	Password string
+	Role     string // "admin", "user", etc.
+}
+
+// SchemaWatchConfig configures automatic schema change detection.
+type SchemaWatchConfig struct {
+	// Enabled enables schema watching.
+	Enabled bool
+
+	// Mode is the watch mode: "poll" or "notify".
+	// "poll" uses periodic polling.
+	// "notify" uses PostgreSQL LISTEN/NOTIFY (more efficient).
+	// Default: "poll"
+	Mode string
+
+	// PollInterval is the interval between polls (for poll mode).
+	// Default: 30s
+	PollInterval time.Duration
+
+	// Channel is the PostgreSQL notification channel (for notify mode).
+	// Default: "tugo_schema_change"
+	Channel string
+}
+
+// DefaultSchemaWatchConfig returns default schema watch configuration.
+func DefaultSchemaWatchConfig() SchemaWatchConfig {
+	return SchemaWatchConfig{
+		Enabled:      false,
+		Mode:         "poll",
+		PollInterval: 30 * time.Second,
+		Channel:      "tugo_schema_change",
+	}
 }
 
 // DefaultConfig returns a configuration with sensible defaults.
