@@ -13,6 +13,11 @@
 - **File Storage**: Local and MinIO storage backends
 - **Validation**: Automatic validation based on database constraints
 - **Middleware-first**: Designed for integration into existing Gin applications
+- **Permission System**: Policy-based access control with row-level filtering
+- **Auto-migrations**: Internal migration system (no external tools required)
+- **Schema Watching**: Auto-detect database changes via polling or PostgreSQL LISTEN/NOTIFY
+- **User Seeding**: Built-in mechanism to seed admin users from config or environment
+- **Custom UserStore**: Support for custom user tables with embed pattern
 
 ## Installation
 
@@ -40,6 +45,20 @@ func main() {
         Discovery: tugo.DiscoveryConfig{
             Prefix:       "api_",
             AutoDiscover: true,
+        },
+        // Auto-register admin routes
+        Mount: tugo.MountOptions{
+            IncludeAdmin: true,
+        },
+        // Seed default admin user
+        Seed: tugo.SeedConfig{
+            Enabled: true,
+            AdminUser: &tugo.SeedUser{
+                Username: "admin",
+                Email:    "admin@example.com",
+                Password: "changeme",
+                Role:     "admin",
+            },
         },
     })
     if err != nil {
@@ -78,10 +97,15 @@ func main() {
             Prefix:       "api_",
             AutoDiscover: true,
         },
+        Mount: tugo.MountOptions{
+            IncludeAdmin:     true,
+            AdminPath:        "/admin",
+            RequireAdminAuth: true,
+        },
     })
     engine.Init(context.Background())
 
-    // Mount TuGo routes
+    // Mount TuGo routes (includes admin routes if configured)
     api := router.Group("/api/v1")
     engine.Mount(api)
 
@@ -112,16 +136,146 @@ CREATE TABLE api_categories (
 );
 ```
 
-### Running Migrations
+### Migrations
 
-TuGo provides migration files for system tables. Use [golang-migrate](https://github.com/golang-migrate/migrate):
+TuGo automatically runs migrations during `Init()`. No external migration tools required.
+
+```go
+// Migrations run automatically
+engine.Init(context.Background())
+```
+
+To check migration status programmatically:
+
+```go
+import "github.com/thienel/tugo/pkg/migrate"
+
+migrator := migrate.NewMigrator(db, logger)
+status, _ := migrator.Status(ctx)
+for _, s := range status {
+    fmt.Printf("%s: applied=%v\n", s.Name, s.Applied)
+}
+```
+
+## User Seeding
+
+### From Configuration
+
+```go
+engine, _ := tugo.New(tugo.Config{
+    Seed: tugo.SeedConfig{
+        Enabled: true,
+        AdminUser: &tugo.SeedUser{
+            Username: "admin",
+            Email:    "admin@example.com",
+            Password: "secure-password",
+            Role:     "admin",
+        },
+    },
+})
+```
+
+### From Environment Variables
+
+Set these environment variables and TuGo will seed the admin user automatically:
 
 ```bash
-# Install migrate CLI
-go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+export TUGO_ADMIN_USERNAME=admin
+export TUGO_ADMIN_EMAIL=admin@example.com
+export TUGO_ADMIN_PASSWORD=secure-password
+```
 
-# Run migrations
-migrate -path internal/db/migrations -database "postgres://user:pass@localhost/mydb?sslmode=disable" up
+## Schema Watching
+
+Auto-detect database schema changes:
+
+```go
+engine, _ := tugo.New(tugo.Config{
+    SchemaWatch: tugo.SchemaWatchConfig{
+        Enabled:      true,
+        Mode:         "poll",         // "poll" or "notify"
+        PollInterval: 30 * time.Second,
+    },
+})
+```
+
+Or trigger manually:
+
+```go
+engine.TriggerSchemaRefresh(ctx)
+```
+
+## Permission System
+
+TuGo includes a policy-based permission system with row-level filtering:
+
+```go
+import "github.com/thienel/tugo/pkg/permission"
+
+// Create permission checker
+checker := permission.NewChecker(db, logger)
+
+// Set policy: users can only read their own records
+checker.SetPolicy(ctx, userRoleID, "posts", permission.ActionRead,
+    map[string]any{"author_id": "$USER_ID"}, // Row-level filter
+    nil, // Field permissions
+    nil, // Presets
+)
+
+// Use middleware
+router.Use(permission.Middleware(checker))
+```
+
+### Filter Variables
+
+| Variable | Description |
+|----------|-------------|
+| `$USER_ID` | Current user's ID |
+| `$ROLE_ID` | Current user's role ID |
+| `$ROLE` | Current user's role name |
+| `$USERNAME` | Current user's username |
+| `$EMAIL` | Current user's email |
+
+## Custom UserStore
+
+Use custom user tables with the embed pattern:
+
+```go
+// Define custom user type embedding auth.User
+type Employee struct {
+    auth.User                    // Embed base User
+    DepartmentID string          `db:"department_id" json:"department_id"`
+    HireDate     time.Time       `db:"hire_date" json:"hire_date"`
+}
+
+// Implement auth.UserStore interface
+type EmployeeStore struct {
+    db *sqlx.DB
+}
+
+func (s *EmployeeStore) GetByUsername(ctx context.Context, username string) (*auth.User, error) {
+    var emp Employee
+    err := s.db.GetContext(ctx, &emp,
+        "SELECT * FROM employees WHERE username = $1", username)
+    return &emp.User, err // Return embedded User
+}
+
+func (s *EmployeeStore) Create(ctx context.Context, user *auth.User, hash string) error {
+    _, err := s.db.ExecContext(ctx,
+        "INSERT INTO employees (id, username, email, password_hash) VALUES ($1, $2, $3, $4)",
+        user.ID, user.Username, user.Email, hash)
+    return err
+}
+
+// ... implement other UserStore methods
+
+// Use in config
+engine, _ := tugo.New(tugo.Config{
+    Auth: tugo.AuthConfig{
+        Methods:         []string{"jwt"},
+        CustomUserStore: &EmployeeStore{db: db},
+    },
+})
 ```
 
 ## API Endpoints
@@ -147,6 +301,19 @@ migrate -path internal/db/migrations -database "postgres://user:pass@localhost/m
 | POST | `/auth/totp/setup` | Generate TOTP secret |
 | POST | `/auth/totp/enable` | Enable 2FA |
 | POST | `/auth/totp/disable` | Disable 2FA |
+
+### Admin Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/admin/collections` | List all collections |
+| GET | `/admin/collections/:name` | Get collection details |
+| POST | `/admin/collections` | Create new collection |
+| DELETE | `/admin/collections/:name` | Drop collection |
+| POST | `/admin/collections/:name/fields` | Add field |
+| PATCH | `/admin/collections/:name/fields/:field` | Alter field |
+| DELETE | `/admin/collections/:name/fields/:field` | Drop field |
+| POST | `/admin/sync-schema` | Refresh schema |
 
 ### File Endpoints
 
@@ -219,6 +386,18 @@ GET /api/v1/products?expand=category
 GET /api/v1/products?expand=category,brand
 ```
 
+### Field Selection
+
+```
+GET /api/v1/products?fields=id,name,price
+```
+
+### Search
+
+```
+GET /api/v1/products?search=iphone
+```
+
 ## Configuration Reference
 
 ```go
@@ -238,7 +417,8 @@ type Config struct {
 
     // Authentication
     Auth AuthConfig{
-        Methods []string  // "jwt", "cookie", "totp"
+        Methods         []string  // "jwt", "cookie", "totp"
+        CustomUserStore any       // Custom auth.UserStore implementation
         JWT JWTConfig{
             Secret     string
             Expiry     int    // Seconds (default: 86400)
@@ -263,6 +443,32 @@ type Config struct {
     Storage StorageConfig{
         Default   string
         Providers map[string]StorageProvider
+    }
+
+    // Route mounting
+    Mount MountOptions{
+        IncludeAdmin     bool   // Auto-register admin routes
+        AdminPath        string // Default: "/admin"
+        RequireAdminAuth bool   // Require admin role (default: true)
+    }
+
+    // User seeding
+    Seed SeedConfig{
+        Enabled   bool
+        AdminUser *SeedUser{
+            Username string
+            Email    string
+            Password string
+            Role     string
+        }
+    }
+
+    // Schema watching
+    SchemaWatch SchemaWatchConfig{
+        Enabled      bool
+        Mode         string        // "poll" or "notify"
+        PollInterval time.Duration // Default: 30s
+        Channel      string        // PG channel (default: "tugo_schema_change")
     }
 
     // Server (standalone mode)
@@ -314,7 +520,7 @@ All responses follow a consistent format:
 
 ## System Tables
 
-TuGo uses the following system tables (created by migrations):
+TuGo uses the following system tables (created automatically):
 
 | Table | Purpose |
 |-------|---------|
@@ -322,8 +528,12 @@ TuGo uses the following system tables (created by migrations):
 | `tugo_users` | User accounts |
 | `tugo_sessions` | Session tokens |
 | `tugo_permissions` | Role-based permissions |
-| `autoapi_files` | File storage metadata |
+| `tugo_collections` | Collection metadata |
+| `tugo_fields` | Field definitions |
+| `tugo_relationships` | Relationship metadata |
+| `tugo_migrations` | Migration tracking |
 | `tugo_audit_log` | Audit trail |
+| `autoapi_files` | File storage metadata |
 
 ## License
 
