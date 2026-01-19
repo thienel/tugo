@@ -53,7 +53,7 @@ The Go package will use:
 ### Key Design Patterns
 
 - Prefix-based table discovery: Tables with `api_` prefix are auto-exposed
-- System tables use `autoapi_` prefix (collections, permissions, roles, users, files)
+- System tables use `tugo_` prefix (collections, permissions, roles, users, files, sessions, audit_log, etc.)
 - Dynamic routing based on collection names
 - Policy-based permissions with Directus-style filters
 

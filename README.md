@@ -533,7 +533,7 @@ TuGo uses the following system tables (created automatically):
 | `tugo_relationships` | Relationship metadata |
 | `tugo_migrations` | Migration tracking |
 | `tugo_audit_log` | Audit trail |
-| `autoapi_files` | File storage metadata |
+| `tugo_files` | File storage metadata |
 
 ## License
 

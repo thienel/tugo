@@ -168,7 +168,7 @@ type FileRecord struct {
 // saveFileRecord saves a file record to the database.
 func (m *Manager) saveFileRecord(ctx context.Context, record *FileRecord) error {
 	query := `
-		INSERT INTO autoapi_files (id, filename, storage_path, provider, size, content_type, url, created_at, updated_at)
+		INSERT INTO tugo_files (id, filename, storage_path, provider, size, content_type, url, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`
 	now := time.Now()
@@ -193,7 +193,7 @@ func (m *Manager) GetFileRecord(ctx context.Context, fileID string) (*FileRecord
 	}
 
 	var record FileRecord
-	query := `SELECT * FROM autoapi_files WHERE id = $1`
+	query := `SELECT * FROM tugo_files WHERE id = $1`
 	err := m.db.GetContext(ctx, &record, query, fileID)
 	if err != nil {
 		return nil, fmt.Errorf("file not found: %w", err)
@@ -203,7 +203,7 @@ func (m *Manager) GetFileRecord(ctx context.Context, fileID string) (*FileRecord
 
 // deleteFileRecord deletes a file record from the database.
 func (m *Manager) deleteFileRecord(ctx context.Context, fileID string) error {
-	query := `DELETE FROM autoapi_files WHERE id = $1`
+	query := `DELETE FROM tugo_files WHERE id = $1`
 	_, err := m.db.ExecContext(ctx, query, fileID)
 	return err
 }
@@ -216,14 +216,14 @@ func (m *Manager) ListFiles(ctx context.Context, limit, offset int) ([]*FileReco
 
 	// Get total count
 	var total int
-	countQuery := `SELECT COUNT(*) FROM autoapi_files`
+	countQuery := `SELECT COUNT(*) FROM tugo_files`
 	if err := m.db.GetContext(ctx, &total, countQuery); err != nil {
 		return nil, 0, err
 	}
 
 	// Get files
 	var records []*FileRecord
-	query := `SELECT * FROM autoapi_files ORDER BY created_at DESC LIMIT $1 OFFSET $2`
+	query := `SELECT * FROM tugo_files ORDER BY created_at DESC LIMIT $1 OFFSET $2`
 	if err := m.db.SelectContext(ctx, &records, query, limit, offset); err != nil {
 		return nil, 0, err
 	}
@@ -231,14 +231,14 @@ func (m *Manager) ListFiles(ctx context.Context, limit, offset int) ([]*FileReco
 	return records, total, nil
 }
 
-// EnsureTable creates the autoapi_files table if it doesn't exist.
+// EnsureTable creates the tugo_files table if it doesn't exist.
 func (m *Manager) EnsureTable(ctx context.Context) error {
 	if m.db == nil {
 		return nil
 	}
 
 	query := `
-		CREATE TABLE IF NOT EXISTS autoapi_files (
+		CREATE TABLE IF NOT EXISTS tugo_files (
 			id VARCHAR(36) PRIMARY KEY,
 			filename VARCHAR(255) NOT NULL,
 			storage_path VARCHAR(512) NOT NULL,
@@ -251,8 +251,8 @@ func (m *Manager) EnsureTable(ctx context.Context) error {
 			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 		);
-		CREATE INDEX IF NOT EXISTS idx_autoapi_files_created_at ON autoapi_files(created_at DESC);
-		CREATE INDEX IF NOT EXISTS idx_autoapi_files_uploaded_by ON autoapi_files(uploaded_by);
+		CREATE INDEX IF NOT EXISTS idx_tugo_files_created_at ON tugo_files(created_at DESC);
+		CREATE INDEX IF NOT EXISTS idx_tugo_files_uploaded_by ON tugo_files(uploaded_by);
 	`
 	_, err := m.db.ExecContext(ctx, query)
 	return err

@@ -77,7 +77,7 @@ CREATE INDEX IF NOT EXISTS idx_tugo_sessions_expires_at ON tugo_sessions(expires
 -- ============================================================================
 -- FILES TABLE (Storage Metadata)
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS autoapi_files (
+CREATE TABLE IF NOT EXISTS tugo_files (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     filename VARCHAR(500) NOT NULL,
     original_filename VARCHAR(500),
@@ -93,11 +93,11 @@ CREATE TABLE IF NOT EXISTS autoapi_files (
 );
 
 -- Create indexes
-CREATE INDEX IF NOT EXISTS idx_autoapi_files_filename ON autoapi_files(filename);
-CREATE INDEX IF NOT EXISTS idx_autoapi_files_path ON autoapi_files(path);
-CREATE INDEX IF NOT EXISTS idx_autoapi_files_mimetype ON autoapi_files(mimetype);
-CREATE INDEX IF NOT EXISTS idx_autoapi_files_storage_provider ON autoapi_files(storage_provider);
-CREATE INDEX IF NOT EXISTS idx_autoapi_files_uploaded_by ON autoapi_files(uploaded_by);
+CREATE INDEX IF NOT EXISTS idx_tugo_files_filename ON tugo_files(filename);
+CREATE INDEX IF NOT EXISTS idx_tugo_files_path ON tugo_files(path);
+CREATE INDEX IF NOT EXISTS idx_tugo_files_mimetype ON tugo_files(mimetype);
+CREATE INDEX IF NOT EXISTS idx_tugo_files_storage_provider ON tugo_files(storage_provider);
+CREATE INDEX IF NOT EXISTS idx_tugo_files_uploaded_by ON tugo_files(uploaded_by);
 
 -- ============================================================================
 -- COLLECTIONS TABLE (Schema Metadata)
@@ -248,8 +248,8 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tugo_sessions_updated_at') THEN
         CREATE TRIGGER tugo_sessions_updated_at BEFORE UPDATE ON tugo_sessions FOR EACH ROW EXECUTE FUNCTION tugo_update_timestamp();
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'autoapi_files_updated_at') THEN
-        CREATE TRIGGER autoapi_files_updated_at BEFORE UPDATE ON autoapi_files FOR EACH ROW EXECUTE FUNCTION tugo_update_timestamp();
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tugo_files_updated_at') THEN
+        CREATE TRIGGER tugo_files_updated_at BEFORE UPDATE ON tugo_files FOR EACH ROW EXECUTE FUNCTION tugo_update_timestamp();
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tugo_collections_updated_at') THEN
         CREATE TRIGGER tugo_collections_updated_at BEFORE UPDATE ON tugo_collections FOR EACH ROW EXECUTE FUNCTION tugo_update_timestamp();

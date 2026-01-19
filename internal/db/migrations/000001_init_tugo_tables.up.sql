@@ -77,7 +77,7 @@ CREATE INDEX idx_tugo_sessions_expires_at ON tugo_sessions(expires_at);
 -- ============================================================================
 -- FILES TABLE (Storage Metadata)
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS autoapi_files (
+CREATE TABLE IF NOT EXISTS tugo_files (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     filename VARCHAR(500) NOT NULL,
     original_filename VARCHAR(500),
@@ -93,11 +93,11 @@ CREATE TABLE IF NOT EXISTS autoapi_files (
 );
 
 -- Create indexes
-CREATE INDEX idx_autoapi_files_filename ON autoapi_files(filename);
-CREATE INDEX idx_autoapi_files_path ON autoapi_files(path);
-CREATE INDEX idx_autoapi_files_mimetype ON autoapi_files(mimetype);
-CREATE INDEX idx_autoapi_files_storage_provider ON autoapi_files(storage_provider);
-CREATE INDEX idx_autoapi_files_uploaded_by ON autoapi_files(uploaded_by);
+CREATE INDEX idx_tugo_files_filename ON tugo_files(filename);
+CREATE INDEX idx_tugo_files_path ON tugo_files(path);
+CREATE INDEX idx_tugo_files_mimetype ON tugo_files(mimetype);
+CREATE INDEX idx_tugo_files_storage_provider ON tugo_files(storage_provider);
+CREATE INDEX idx_tugo_files_uploaded_by ON tugo_files(uploaded_by);
 
 -- ============================================================================
 -- PERMISSIONS TABLE
@@ -167,8 +167,8 @@ CREATE TRIGGER tugo_sessions_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION tugo_update_timestamp();
 
-CREATE TRIGGER autoapi_files_updated_at
-    BEFORE UPDATE ON autoapi_files
+CREATE TRIGGER tugo_files_updated_at
+    BEFORE UPDATE ON tugo_files
     FOR EACH ROW
     EXECUTE FUNCTION tugo_update_timestamp();
 
