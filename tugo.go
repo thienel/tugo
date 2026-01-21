@@ -254,7 +254,7 @@ func (e *Engine) initAuth() error {
 	})
 
 	// Create auth middleware
-	e.authMiddleware = auth.RequireAuth(e.authProvider, e.userStore)
+	e.authMiddleware = auth.RequireAuth(e.authProvider, e.userStore, sessionConfigPtr)
 
 	e.logger.Infow("Authentication initialized", "methods", e.config.Auth.Methods)
 

@@ -106,20 +106,32 @@ func Middleware(config MiddlewareConfig) gin.HandlerFunc {
 }
 
 // RequireAuth creates a middleware that requires authentication.
-func RequireAuth(provider Provider, userStore UserStore) gin.HandlerFunc {
+// sessionConfig is optional and used for cookie-based authentication.
+func RequireAuth(provider Provider, userStore UserStore, sessionConfig ...*SessionConfig) gin.HandlerFunc {
+	var cfg *SessionConfig
+	if len(sessionConfig) > 0 {
+		cfg = sessionConfig[0]
+	}
 	return Middleware(MiddlewareConfig{
-		Provider:  provider,
-		UserStore: userStore,
-		Optional:  false,
+		Provider:      provider,
+		UserStore:     userStore,
+		SessionConfig: cfg,
+		Optional:      false,
 	})
 }
 
 // OptionalAuth creates a middleware that allows optional authentication.
-func OptionalAuth(provider Provider, userStore UserStore) gin.HandlerFunc {
+// sessionConfig is optional and used for cookie-based authentication.
+func OptionalAuth(provider Provider, userStore UserStore, sessionConfig ...*SessionConfig) gin.HandlerFunc {
+	var cfg *SessionConfig
+	if len(sessionConfig) > 0 {
+		cfg = sessionConfig[0]
+	}
 	return Middleware(MiddlewareConfig{
-		Provider:  provider,
-		UserStore: userStore,
-		Optional:  true,
+		Provider:      provider,
+		UserStore:     userStore,
+		SessionConfig: cfg,
+		Optional:      true,
 	})
 }
 
