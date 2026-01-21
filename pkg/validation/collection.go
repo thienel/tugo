@@ -46,7 +46,13 @@ func (cv *CollectionValidator) ValidateForCreate(ctx context.Context, data map[s
 func (cv *CollectionValidator) ValidateForUpdate(ctx context.Context, id interface{}, data map[string]interface{}) *ValidationErrors {
 	// For updates, we need to set the exclude ID on unique validators
 	// This is handled at the validator level
-	return cv.Validate(ctx, data)
+	return cv.ValidatePartial(ctx, data)
+}
+
+// ValidatePartial validates only the fields that are provided in data.
+// This skips "required" validation for fields not present in the input.
+func (cv *CollectionValidator) ValidatePartial(ctx context.Context, data map[string]interface{}) *ValidationErrors {
+	return cv.schema.ValidatePartial(ctx, data)
 }
 
 // BuildFromSchema builds validators from the collection's field definitions.
@@ -203,13 +209,23 @@ func (r *ValidatorRegistry) BuildFromCollection(collection *schema.Collection) *
 	return cv
 }
 
-// Validate validates data for a collection.
+// Validate validates data for a collection (all required fields must be present).
 func (r *ValidatorRegistry) Validate(ctx context.Context, collectionName string, data map[string]interface{}) *ValidationErrors {
 	cv, ok := r.Get(collectionName)
 	if !ok {
 		return nil // No validation configured
 	}
 	return cv.Validate(ctx, data)
+}
+
+// ValidatePartial validates data for a collection (only validates fields that are provided).
+// This is used for PATCH/UPDATE operations where only modified fields are sent.
+func (r *ValidatorRegistry) ValidatePartial(ctx context.Context, collectionName string, data map[string]interface{}) *ValidationErrors {
+	cv, ok := r.Get(collectionName)
+	if !ok {
+		return nil // No validation configured
+	}
+	return cv.ValidatePartial(ctx, data)
 }
 
 // ValidFieldName validates that a field name is safe.

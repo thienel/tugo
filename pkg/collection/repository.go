@@ -80,6 +80,9 @@ func (r *Repository) GetByID(ctx context.Context, collection *schema.Collection,
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, apperror.ErrNotFound.WithMessagef("Item with ID '%v' not found", id)
 		}
+		if isInvalidUUIDError(err) {
+			return nil, apperror.ErrBadRequest.WithMessagef("Invalid ID format: '%v'", id)
+		}
 		return nil, apperror.ErrInternalServer.WithError(err)
 	}
 
@@ -243,6 +246,16 @@ func isDuplicateKeyError(err error) bool {
 	// PostgreSQL error code for unique_violation is 23505
 	errStr := err.Error()
 	return contains(errStr, "23505") || contains(errStr, "duplicate key")
+}
+
+// isInvalidUUIDError checks if an error is an invalid UUID format error.
+func isInvalidUUIDError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// PostgreSQL error code for invalid_text_representation is 22P02
+	errStr := err.Error()
+	return contains(errStr, "22P02") || contains(errStr, "invalid input syntax for type uuid")
 }
 
 // contains checks if a string contains a substring.

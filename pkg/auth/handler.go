@@ -136,19 +136,36 @@ func (h *Handler) Logout(c *gin.Context) {
 
 // Refresh handles POST /auth/refresh requests.
 func (h *Handler) Refresh(c *gin.Context) {
+	var refreshToken string
+
+	// Try to get refresh token from request body
 	var req RefreshRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err == nil && req.RefreshToken != "" {
+		refreshToken = req.RefreshToken
+	} else if h.sessionConfig != nil {
+		// For cookie-based sessions, try to get the current session token from cookie
+		if token, err := c.Cookie(h.sessionConfig.CookieName); err == nil && token != "" {
+			refreshToken = token
+		}
+	}
+
+	if refreshToken == "" {
 		c.JSON(http.StatusBadRequest, response.FromAppError(
-			apperror.ErrBadRequest.WithMessage("Invalid request body"),
+			apperror.ErrBadRequest.WithMessage("Refresh token is required"),
 		))
 		return
 	}
 
 	// Refresh tokens
-	tokens, err := h.provider.RefreshTokens(c.Request.Context(), req.RefreshToken)
+	tokens, err := h.provider.RefreshTokens(c.Request.Context(), refreshToken)
 	if err != nil {
 		h.handleError(c, err)
 		return
+	}
+
+	// Update cookie if session-based
+	if h.sessionConfig != nil && tokens.AccessToken != "" {
+		h.setSessionCookie(c, tokens.AccessToken)
 	}
 
 	c.JSON(http.StatusOK, response.Success(tokens))

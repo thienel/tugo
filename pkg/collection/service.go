@@ -156,9 +156,9 @@ func (s *Service) Update(ctx context.Context, collectionName string, id any, dat
 	// Filter out unknown fields
 	filteredData := filterFields(data, collection.Fields)
 
-	// Validate data (for updates, we only validate provided fields)
+	// Validate data (for updates, we only validate provided fields - skip required check)
 	if s.validator != nil {
-		if validationErr := s.validator.Validate(ctx, collectionName, filteredData); validationErr != nil {
+		if validationErr := s.validator.ValidatePartial(ctx, collectionName, filteredData); validationErr != nil {
 			return nil, apperror.ErrValidation.WithMessage(validationErr.Error()).WithDetails(validationErr.Errors)
 		}
 	}

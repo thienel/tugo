@@ -90,6 +90,25 @@ func (fv *FieldValidator) Validate(ctx context.Context, value interface{}) *Fiel
 	return nil
 }
 
+// ValidatePartial validates a value but skips "required" validation.
+// This is used for partial updates (PATCH) where not all fields are provided.
+func (fv *FieldValidator) ValidatePartial(ctx context.Context, value interface{}) *FieldError {
+	for _, v := range fv.validators {
+		// Skip required validation for partial updates
+		if v.Name() == "required" {
+			continue
+		}
+		if err := v.Validate(ctx, value); err != nil {
+			return &FieldError{
+				Field:   fv.field,
+				Message: err.Error(),
+				Code:    v.Name(),
+			}
+		}
+	}
+	return nil
+}
+
 // Schema holds validation rules for a collection.
 type Schema struct {
 	fields map[string]*FieldValidator
@@ -120,6 +139,26 @@ func (s *Schema) Validate(ctx context.Context, data map[string]interface{}) *Val
 		value := data[fieldName]
 		if err := fv.Validate(ctx, value); err != nil {
 			errors.Errors = append(errors.Errors, *err)
+		}
+	}
+
+	if errors.HasErrors() {
+		return errors
+	}
+	return nil
+}
+
+// ValidatePartial validates only fields present in data (for partial updates).
+// This skips "required" validation for fields not present in the input.
+func (s *Schema) ValidatePartial(ctx context.Context, data map[string]interface{}) *ValidationErrors {
+	errors := &ValidationErrors{}
+
+	for fieldName, fv := range s.fields {
+		// Only validate fields that are explicitly provided in data
+		if value, exists := data[fieldName]; exists {
+			if err := fv.ValidatePartial(ctx, value); err != nil {
+				errors.Errors = append(errors.Errors, *err)
+			}
 		}
 	}
 
